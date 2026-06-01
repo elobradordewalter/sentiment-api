@@ -1,43 +1,33 @@
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from http.server import BaseHTTPRequestHandler
 import anthropic
+import json
 import os
 
-app = FastAPI(title="API de Sentimiento", version="1.0.0")
+class handler(BaseHTTPRequestHandler):
+    def do_POST(self):
+        length = int(self.headers.get('Content-Length', 0))
+        body = json.loads(self.rfile.read(length))
+        texto = body.get('texto', '')
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+        client = anthropic.Anthropic(
+            api_key=os.environ.get('ANTHROPIC_API_KEY')
+        )
+        msg = client.messages.create(
+            model='claude-haiku-4-5-20251001',
+            max_tokens=10,
+            messages=[{
+                'role': 'user',
+                'content': f'Respondé SOLO con una palabra: POSITIVO, NEGATIVO o NEUTRO. Texto: {texto}'
+            }]
+        )
+        resultado = msg.content[0].text.strip().upper()
+        self.send_response(200)
+        self.send_header('Content-type', 'application/json')
+        self.end_headers()
+        self.wfile.write(json.dumps({'sentimiento': resultado}).encode())
 
-cliente = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
-
-class TextoEntrada(BaseModel):
-    texto: str
-
-@app.get("/")
-def raiz():
-    return {"estado": "funcionando", "servicio": "API de Análisis de Sentimiento"}
-
-@app.post("/sentimiento")
-def analizar_sentimiento(entrada: TextoEntrada):
-    mensaje = cliente.messages.create(
-        model="claude-haiku-4-5-20251001",
-        max_tokens=10,
-        messages=[
-            {
-                "role": "user",
-                "content": f"Analizá el sentimiento de este texto. Respondé SOLO con una palabra: POSITIVO, NEGATIVO o NEUTRO.\n\nTexto: {entrada.texto}"
-            }
-        ]
-    )
-    resultado = mensaje.content[0].text.strip().upper()
-    if resultado not in ["POSITIVO", "NEGATIVO", "NEUTRO"]:
-        resultado = "NEUTRO"
-    return {
-        "sentimiento": resultado,
-        "texto": entrada.texto
-    }
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header('Content-type', 'application/json')
+        self.end_headers()
+        self.wfile.write(json.dumps({'estado': 'funcionando'}).encode())
